@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  TASKER
+  ADMIN
+}
+
+enum JobStatus {
+  DRAFT
+  PAID
+  SEARCHING
+  OFFERED
+  ACCEPTED
+  EN_ROUTE
+  ARRIVED
+  PIN_VERIFIED
+  BEFORE_PHOTO
+  IN_PROGRESS
+  ADD_TIME_PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceType {
+  MINUTES_30
+  MINUTES_60
+  ADD_TIME_30
+}
+
+enum PhotoType {
+  BEFORE
+  AFTER
+}
+
+enum SenderRole {
+  CUSTOMER
+  TASKER
+  SYSTEM
+  ADMIN
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String?   @unique
+  phone         String?   @unique
+  role          UserRole
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  taskerProfile TaskerProfile?
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model TaskerProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  name                  String
+  phone                 String
+  email                 String
+  address               String
+  verified              Boolean  @default(false)
+  active                Boolean  @default(false)
+  available             Boolean  @default(false)
+  rating                Float    @default(0)
+  completedJobsCount    Int      @default(0)
+  earningsTotal         Int      @default(0)
+  nextPayDate           DateTime?
+  nextPayAmount         Int      @default(0)
+  lastActiveAt          DateTime?
+  inactivityDays        Int      @default(0)
+  taskerIdNumber        String   @unique @default(cuid())
+  lat                   Float?
+  lng                   Float?
+  
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offers                DispatchOffer[]
+  jobs                  Job[]    @relation("AssignedTasker")
+}
+
+model Job {
+  id                      String      @id @default(cuid())
+  jobNumber               Int         @unique @default(autoincrement())
+  status                  JobStatus   @default(DRAFT)
+  serviceType             ServiceType
+  durationSecondsPurchased Int
+  durationSecondsUsed     Int         @default(0)
+  
+  customerName            String
+  customerPhone           String
+  customerEmail           String?
+  
+  address                 String
+  lat                     Float?
+  lng                     Float?
+  
+  description             String
+  pin                     String      @default(dbgenerated("floor(random() * 9000 + 1000)::text"))
+  
+  taskerId                String?
+  tasker                  TaskerProfile? @relation("AssignedTasker", fields: [taskerId], references: [id])
+  
+  createdAt               DateTime    @default(now())
+  paidAt                  DateTime?
+  acceptedAt              DateTime?
+  arrivedAt               DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  cancelledAt             DateTime?
+  
+  payments                Payment[]
+  photos                  PhotoEvidence[]
+  messages                Message[]
+  offers                  DispatchOffer[]
+  rating                  Rating?
+  cancellation            Cancellation?
+  supportTickets          SupportTicket[]
+  auditLogs               AuditLog[]
+  addTimeCheckoutSessionId String?
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  jobId             String
+  job               Job      @relation(fields: [jobId], references: [id])
+  stripePaymentIntentId String?
+  stripeCheckoutSessionId String?
+  amount            Int
+  status            String
+  type              String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model DispatchOffer {
+  id            String    @id @default(cuid())
+  jobId         String
+  job           Job       @relation(fields: [jobId], references: [id])
+  taskerId      String
+  tasker        TaskerProfile @relation(fields: [taskerId], references: [id])
+  offeredAt     DateTime  @default(now())
+  offerExpiresAt DateTime
+  acceptedAt    DateTime?
+  declinedAt    DateTime?
+  distanceMiles Float?
+  
+  @@unique([jobId, taskerId])
+}
+
+model PhotoEvidence {
+  id          String    @id @default(cuid())
+  jobId       String
+  job         Job       @relation(fields: [jobId], references: [id])
+  type        PhotoType
+  url         String
+  takenAt     DateTime
+  lat         Float?
+  lng         Float?
+  metadata    Json
+  fileHash    String
+  fileSize    Int
+  mimeType    String
+  createdAt   DateTime  @default(now())
+}
+
+model Message {
+  id          String      @id @default(cuid())
+  jobId       String
+  job         Job         @relation(fields: [jobId], references: [id])
+  senderRole  SenderRole
+  body        String
+  filtered    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+}
+
+model Rating {
+  id          String   @id @default(cuid())
+  jobId       String   @unique
+  job         Job      @relation(fields: [jobId], references: [id])
+  rating      Int
+  feedback    String?
+  createdAt   DateTime @default(now())
+}
+
+model Cancellation {
+  id          String   @id @default(cuid())
+  jobId       String   @unique
+  job         Job      @relation(fields: [jobId], references: [id])
+  requestedAt DateTime @default(now())
+  feeApplied  Boolean  @default(false)
+  feeAmount   Int      @default(0)
+  reason      String?
+  ruleVersion String   @default("1.0")
+}
+
+model SupportTicket {
+  id          String   @id @default(cuid())
+  jobId       String?
+  job         Job?     @relation(fields: [jobId], references: [id])
+  creatorType String
+  creatorId   String?
+  status      String   @default("open")
+  category    String
+  description String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id])
+  actorRole   String
+  actorId     String?
+  fromStatus  String?
+  toStatus    String
+  timestamp   DateTime @default(now())
+  metadata    Json?
+}
